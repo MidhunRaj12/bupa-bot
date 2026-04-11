@@ -1,0 +1,20 @@
+# Browser automation
+playwright==1.44.0
+
+# Scheduling
+APScheduler==3.10.4
+
+# Retry logic
+tenacity==8.2.3
+
+# Logging
+loguru==0.7.2
+
+# Environment variables
+python-dotenv==1.0.1
+
+# Telegram notifications
+python-telegram-bot==20.7
+
+# Async support
+asyncio==3.4.3
