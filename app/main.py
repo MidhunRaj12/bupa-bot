@@ -8,14 +8,16 @@ from app.bot import check_appointments, setup_logger
 from app.notify import notify
 from app import config
 
+import traceback
+
 def run_job():
-    """Wrapper so scheduler catches and logs exceptions cleanly."""
     try:
         logger.info("=" * 50)
         logger.info("Job triggered by scheduler")
         check_appointments()
     except Exception as e:
         logger.error(f"Job failed after all retries: {e}")
+        logger.error(traceback.format_exc())   # ← prints full stack trace
 
 def main():
     setup_logger()

@@ -30,16 +30,14 @@ def setup_logger():
 )"""
 def check_appointments():
     """
-    Main automation function.
-    Phase 1: Load page, verify form fields exist, take screenshot.
-    Phase 2 (next): fill form and check for slots.
+    Phase 2: Fill form fields, click search, keep browser open for inspection.
     """
     logger.info(f"[{config.CONTAINER_NAME}] Starting appointment check...")
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=config.HEADLESS,
-            args=["--no-sandbox", "--disable-dev-shm-usage"]  # required in Docker
+            args=["--no-sandbox", "--disable-dev-shm-usage"]
         )
 
         context = browser.new_context(
@@ -55,59 +53,99 @@ def check_appointments():
 
         try:
             # --- Step 1: Load the page ---
-            logger.info(f"Navigating to {URL}")
-            page.goto(config.BUPA_URL, wait_until="networkidle", timeout=30000)
             logger.info(f"Navigating to {config.BUPA_URL}")
+            page.goto(config.BUPA_URL, wait_until="networkidle", timeout=30000)
             logger.info("Page loaded successfully.")
 
-            # --- Step 2: Verify key form fields exist ---
-            fields = {
-                "HAP ID field":     'input[name*="HapId"], input[id*="HapId"]',
-                "Email field":      'input[type="email"], input[id*="Email"]',
-                "Given name field": 'input[id*="Given"], input[id*="First"]',
-                "Family name field":'input[id*="Family"], input[id*="Last"]',
-                "DOB field":        'input[id*="Dob"], input[id*="Birth"]',
-                "Submit button":    'input[type="submit"], button[type="submit"]',
-            }
+            # --- Step 2: Fill form fields ---
+            logger.info("Filling form fields...")
 
-            results = {}
-            for label, selector in fields.items():
-                found = page.locator(selector).count() > 0
-                results[label] = "✅ found" if found else "❌ NOT found"
-                logger.info(f"  {label}: {results[label]}")
+            page.locator('#txtHAPID').fill(config.HAP_ID)
+            logger.info("  HAP ID filled.")
 
-            # --- Step 3: Screenshot ---
-            screenshot_path = (
-                f"{config.SCREENSHOT_DIR}/"
-                f"{config.CONTAINER_NAME}_check.png"
-            )
-            page.screenshot(path=screenshot_path, full_page=True)
-            logger.info(f"Screenshot saved → {screenshot_path}")
+            page.locator('#txtEmail').fill(config.EMAIL)
+            logger.info("  Email filled.")
 
-            # --- Step 4: Report ---
-            all_found = all("✅" in v for v in results.values())
-            if all_found:
-                logger.info("✅ All form fields detected — bot is ready for Phase 2.")
-            else:
-                missing = [k for k, v in results.items() if "❌" in v]
-                logger.warning(f"Some fields not found: {missing}")
-                notify.notify_error(f"Fields not found: {missing}")
+            page.locator('#txtFirstName').fill(config.GIVEN_NAMES)
+            logger.info("  Given name filled.")
 
-            return results
+            page.locator('#txtSurname').fill(config.FAMILY_NAME)
+            logger.info("  Family name filled.")
 
-        except PlaywrightTimeout as e:
+            page.locator('#txtDOB').fill(config.DOB)
+            logger.info("  DOB filled.")
+
+            # --- Step 3: Screenshot before submitting ---
             screenshot_path = os.path.join(
                 config.SCREENSHOT_DIR,
-                f"{config.CONTAINER_NAME}_timeout.png"
+                f"{config.CONTAINER_NAME}_before_submit.png"
             )
-            page.screenshot(path=screenshot_path)
-            logger.error(f"Timeout error: {e}")
-            raise
+            page.screenshot(path=screenshot_path, full_page=True)
+            logger.info(f"Pre-submit screenshot saved → {screenshot_path}")
+
+            # --- Step 4: Click search ---
+            logger.info("Clicking search button...")
+            page.locator('#ContentPlaceHolder1_btnSearch').click()
+
+            # Wait for next page to fully load
+            page.wait_for_load_state("networkidle", timeout=30000)
+            logger.info("Search submitted — next page loaded.")
+            logger.info(f"Current URL: {page.url}")
+            logger.info(f"Page title:  {page.title()}")
+
+            # --- Step 5: Screenshot of result page ---
+            screenshot_path = os.path.join(
+                config.SCREENSHOT_DIR,
+                f"{config.CONTAINER_NAME}_after_submit.png"
+            )
+            page.screenshot(path=screenshot_path, full_page=True)
+            logger.info(f"Post-submit screenshot saved → {screenshot_path}")
+
+            # --- Step 6: Find and click modify date/location ---
+            logger.info("Looking for 'modify date/location' button...")
+
+            modify_btn = page.locator(
+                '#ContentPlaceHolder1_repAppointments_lnkChangeAppointment_0'
+            )
+
+            if modify_btn.count() > 0:
+                logger.info("  ✅ Modify button found — clicking...")
+                modify_btn.click()
+
+                # ASP.NET postback — wait for full page reload
+                page.wait_for_load_state("networkidle", timeout=30000)
+                logger.info("Modify page loaded.")
+                logger.info(f"Current URL: {page.url}")
+                logger.info(f"Page title:  {page.title()}")
+
+                # Screenshot of modify page
+                screenshot_path = os.path.join(
+                    config.SCREENSHOT_DIR,
+                    f"{config.CONTAINER_NAME}_modify_page.png"
+                )
+                page.screenshot(path=screenshot_path, full_page=True)
+                logger.info(f"Modify page screenshot saved → {screenshot_path}")
+
+            else:
+                logger.warning("  ❌ Modify button not found on page.")
+                logger.warning("  Possible reasons:")
+                logger.warning("  - Credentials incorrect")
+                logger.warning("  - No existing appointment found")
+                logger.warning("  - Page structure different than expected")
+
+            # --- Step 7: Keep browser open for inspection ---
+            logger.info("=" * 50)
+            logger.info("Browser staying open — inspect the modify page.")
+            logger.info("Press Enter in terminal when done...")
+            logger.info("=" * 50)
+
+
+
+            input()     # ← pauses here, browser stays open
 
         except Exception as e:
             logger.error(f"Unexpected error type: {type(e).__name__}")
             logger.error(f"Unexpected error detail: {e}")
-            # Try screenshot even on general error
             try:
                 screenshot_path = os.path.join(
                     config.SCREENSHOT_DIR,
