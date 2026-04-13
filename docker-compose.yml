@@ -1,24 +1,46 @@
 # docker-compose.yml
+#
+# Orchestrates one or more bot containers.
+# Each container runs independently with its own credentials and schedule.
+#
+# To add a second person:
+#   1. Copy the bot_person_a block
+#   2. Rename to bot_person_b
+#   3. Point env_file at envs/person_b.env
+#   4. Set CONTAINER_NAME=bot_person_b
+#
+# Timing:
+#   CHECK_INTERVAL_MIN / CHECK_INTERVAL_MAX in each .env file
+#   controls how often each container checks.
+#   Stagger the containers by setting different MIN/MAX ranges
+#   e.g. person_a: 15-25 min, person_b: 20-35 min
+
 services:
 
   bot_person_a:
     build: .
+    image: bupa-bot:latest
     container_name: bupa_bot_a
     env_file:
       - envs/person_a.env
-    volumes:
-      - ./logs:/app/logs # logs visible on your local machine
-    restart: unless-stopped
     environment:
       - CONTAINER_NAME=bot_person_a
-  # Uncomment when ready for person B
+      - BASE_DIR=/app
+    volumes:
+      # Mounts logs folder to host so you can inspect logs/screenshots
+      # from Windows at: \\wsl$\Ubuntu\home\<user>\bupa-bot\logs
+      - ./logs:/app/logs
+    restart: unless-stopped
+  # Uncomment for second person
   # bot_person_b:
   #   build: .
+  #   image: bupa-bot:latest
   #   container_name: bupa_bot_b
   #   env_file:
   #     - envs/person_b.env
+  #   environment:
+  #     - CONTAINER_NAME=bot_person_b
+  #     - BASE_DIR=/app
   #   volumes:
   #     - ./logs:/app/logs
   #   restart: unless-stopped
-  #   environment:
-  #     - CONTAINER_NAME=bot_person_b
