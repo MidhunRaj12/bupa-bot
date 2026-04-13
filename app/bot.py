@@ -275,16 +275,27 @@ def check_appointments():
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
                 "Chrome/124.0.0.0 Safari/537.36"
-            )
+            ),
+            extra_http_headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Language": "en-US,en;q=0.5",
+                "Accept-Encoding": "gzip, deflate, br",
+                "DNT": "1",
+                "Connection": "keep-alive",
+                "Upgrade-Insecure-Requests": "1",
+            }
         )
         page = context.new_page()
+        import time
+        import random
+        time.sleep(random.uniform(1, 3))  # Random delay to mimic human
 
         try:
             # -- 1. Search page --
             logger.info("Step 1: Loading search page...")
             page.goto(
                 config.BUPA_URL,
-                wait_until="networkidle",
+                wait_until="load",
                 timeout=30000
             )
             logger.info("Step 1: Search page loaded.")
