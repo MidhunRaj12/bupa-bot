@@ -12,6 +12,7 @@ GIVEN_NAMES        = os.getenv("GIVEN_NAMES", "")
 FAMILY_NAME        = os.getenv("FAMILY_NAME", "")
 DOB                = os.getenv("DOB", "")
 PREFERRED_LOCATION = os.getenv("PREFERRED_LOCATION", "")
+CURRENT_APPT_DATE = os.getenv("CURRENT_APPT_DATE", "")  # format: DD/MM/YYYY
 
 # --- Scheduler ---
 CHECK_INTERVAL_MIN = int(os.getenv("CHECK_INTERVAL_MIN", "10"))
@@ -51,3 +52,20 @@ def validate_config():
         raise EnvironmentError(
             f"Missing required environment variables: {', '.join(missing)}"
         )
+
+def save_confirmed_appointment(date: str, time: str, location: str):
+    """Write confirmed appointment details to a file for reference."""
+    from pathlib import Path
+    log_dir = Path(LOG_DIR)
+    log_dir.mkdir(parents=True, exist_ok=True)
+    record = (
+        f"Confirmed appointment\n"
+        f"Container : {CONTAINER_NAME}\n"
+        f"Name      : {GIVEN_NAMES} {FAMILY_NAME}\n"
+        f"Date      : {date}\n"
+        f"Time      : {time}\n"
+        f"Location  : {location}\n"
+        f"Saved at  : {__import__('datetime').datetime.now()}\n"
+    )
+    path = log_dir / f"{CONTAINER_NAME}_confirmed.txt"
+    path.write_text(record)
