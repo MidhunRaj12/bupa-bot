@@ -32,6 +32,12 @@ BASE_DIR       = Path(os.getenv("BASE_DIR", "."))
 LOG_DIR        = str(BASE_DIR / "logs")
 SCREENSHOT_DIR = str(BASE_DIR / "logs" / "screenshots")
 
+# --- URLs ---
+BUPA_URL = os.getenv(
+    "BUPA_URL",
+    "https://bmvs.onlineappointmentscheduling.net.au/oasis/Search.aspx"
+)
+
 def validate_config():
     required = {
         "HAP_ID":       HAP_ID,

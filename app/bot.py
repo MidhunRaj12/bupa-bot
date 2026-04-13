@@ -24,10 +24,10 @@ def setup_logger():
     )
     logger.info(f"Logger initialised → {log_path}")
 
-@retry(
+"""@retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=5, max=30)
-)
+)"""
 def check_appointments():
     """
     Main automation function.
@@ -56,7 +56,8 @@ def check_appointments():
         try:
             # --- Step 1: Load the page ---
             logger.info(f"Navigating to {URL}")
-            page.goto(URL, wait_until="networkidle", timeout=30000)
+            page.goto(config.BUPA_URL, wait_until="networkidle", timeout=30000)
+            logger.info(f"Navigating to {config.BUPA_URL}")
             logger.info("Page loaded successfully.")
 
             # --- Step 2: Verify key form fields exist ---
@@ -95,18 +96,27 @@ def check_appointments():
             return results
 
         except PlaywrightTimeout as e:
-            screenshot_path = (
-                f"{config.SCREENSHOT_DIR}/"
+            screenshot_path = os.path.join(
+                config.SCREENSHOT_DIR,
                 f"{config.CONTAINER_NAME}_timeout.png"
             )
             page.screenshot(path=screenshot_path)
-            logger.error(f"Timeout: {e}")
-            notify.notify_error(f"Page timeout: {e}")
+            logger.error(f"Timeout error: {e}")
             raise
 
         except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            notify.notify_error(str(e))
+            logger.error(f"Unexpected error type: {type(e).__name__}")
+            logger.error(f"Unexpected error detail: {e}")
+            # Try screenshot even on general error
+            try:
+                screenshot_path = os.path.join(
+                    config.SCREENSHOT_DIR,
+                    f"{config.CONTAINER_NAME}_error.png"
+                )
+                page.screenshot(path=screenshot_path)
+                logger.info(f"Error screenshot saved → {screenshot_path}")
+            except Exception as ss_err:
+                logger.warning(f"Could not take error screenshot: {ss_err}")
             raise
 
         finally:
