@@ -1,0 +1,24 @@
+# docker-compose.yml
+services:
+
+  bot_person_a:
+    build: .
+    container_name: bupa_bot_a
+    env_file:
+      - envs/person_a.env
+    volumes:
+      - ./logs:/app/logs # logs visible on your local machine
+    restart: unless-stopped
+    environment:
+      - CONTAINER_NAME=bot_person_a
+  # Uncomment when ready for person B
+  # bot_person_b:
+  #   build: .
+  #   container_name: bupa_bot_b
+  #   env_file:
+  #     - envs/person_b.env
+  #   volumes:
+  #     - ./logs:/app/logs
+  #   restart: unless-stopped
+  #   environment:
+  #     - CONTAINER_NAME=bot_person_b
