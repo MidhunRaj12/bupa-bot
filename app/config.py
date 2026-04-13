@@ -157,3 +157,5 @@ def save_confirmed_appointment(date: str, time: str, location: str):
         f"CURRENT_APPT_DATE reloaded in config — "
         f"next check will compare against {new_date}"
     )
+
+
