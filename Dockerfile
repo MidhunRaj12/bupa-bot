@@ -11,8 +11,9 @@ FROM mcr.microsoft.com/playwright/python:v1.44.0-jammy
 
 WORKDIR /app
 
-# Copy installed packages from builder stage
+# Copy installed packages and binaries from builder stage
 COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Install Chromium browser binaries
 RUN playwright install chromium
