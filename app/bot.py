@@ -1,7 +1,7 @@
 # app/bot.py
 #
 # Core automation module for BUPA appointment rescheduling.
-# Handles the full flow: search -> modify -> date/time selection -> confirmation.
+# Flow: search -> modify -> location -> date/time selection -> confirmation.
 
 import os
 from datetime import datetime, timedelta
@@ -25,27 +25,32 @@ def setup_logger():
 
 def _screenshot(page, name: str):
     """Save a full-page screenshot to the configured screenshot directory."""
-    path = os.path.join(config.SCREENSHOT_DIR, f"{config.CONTAINER_NAME}_{name}.png")
+    path = os.path.join(
+        config.SCREENSHOT_DIR,
+        f"{config.CONTAINER_NAME}_{name}.png"
+    )
+    logger.info(f"Taking screenshot — path: {path}")
     page.screenshot(path=path, full_page=True)
     logger.info(f"Screenshot saved: {name}.png")
 
 
-def _select_date_and_time(page) -> bool:
+def _select_date_and_time(page) -> tuple[bool, str]:
     """
     Scan available date buttons and timeslots.
-    Select the earliest date/time that is:
+    Selects the earliest date/time that is:
       - Before the current appointment date
       - Not within 1 hour of now
-    Returns True if a valid slot was selected and submitted, False otherwise.
+    Returns (True, detail) on success, (False, reason) otherwise.
     """
     try:
         current_appt = datetime.strptime(config.CURRENT_APPT_DATE, "%d/%m/%Y")
     except ValueError:
-        logger.error(
-            f"Invalid CURRENT_APPT_DATE: '{config.CURRENT_APPT_DATE}' "
-            f"— expected DD/MM/YYYY"
+        reason = (
+            f"Invalid CURRENT_APPT_DATE format: '{config.CURRENT_APPT_DATE}'"
+            f" — expected DD/MM/YYYY"
         )
-        return False
+        logger.error(reason)
+        return False, reason
 
     now    = datetime.now()
     cutoff = now + timedelta(hours=1)
@@ -53,10 +58,18 @@ def _select_date_and_time(page) -> bool:
     logger.info(f"Current appointment : {current_appt.strftime('%d/%m/%Y')}")
     logger.info(f"Cutoff (now + 1hr)  : {cutoff.strftime('%d/%m/%Y %H:%M')}")
 
-    # --- Collect and filter date buttons ---
+    # --- Collect all date buttons ---
     date_buttons = page.locator("button.pagination-navigation-btn").all()
     logger.info(f"Date buttons found  : {len(date_buttons)}")
 
+    for i, btn in enumerate(date_buttons):
+        logger.info(
+            f"  [{i}] "
+            f"data-value={btn.get_attribute('data-value')!r} "
+            f"class={btn.get_attribute('class')!r}"
+        )
+
+    # --- Filter valid dates ---
     valid_dates = []
     for btn in date_buttons:
         raw = btn.get_attribute("data-value")
@@ -65,25 +78,34 @@ def _select_date_and_time(page) -> bool:
         try:
             btn_date = datetime.strptime(raw, "%d/%m/%Y")
         except ValueError:
+            logger.warning(f"  Could not parse date: {raw!r}")
             continue
 
         if btn_date >= current_appt:
+            logger.info(f"  Skip {raw} — not earlier than current appointment.")
             continue
         if btn_date.date() < now.date():
+            logger.info(f"  Skip {raw} — date is in the past.")
             continue
 
+        logger.info(f"  Valid date candidate: {raw}")
         valid_dates.append((btn_date, btn, raw))
 
     if not valid_dates:
-        logger.info("No earlier dates available — current appointment is already the earliest.")
-        notify.notify_error("No earlier dates found.")
-        return False
+        reason = "No dates earlier than current appointment found."
+        logger.info(reason)
+        logger.info(
+            f"Taking screenshot before returning "
+            f"— SCREENSHOT_DIR: {config.SCREENSHOT_DIR}"
+        )
+        _screenshot(page, "available_slots")
+        return False, reason
 
     valid_dates.sort(key=lambda x: x[0])
     earliest_date, earliest_btn, earliest_raw = valid_dates[0]
     logger.info(f"Earliest valid date : {earliest_raw}")
 
-    # --- Click the date button and wait for timeslots ---
+    # --- Click date and wait for timeslots ---
     earliest_btn.click()
     try:
         page.wait_for_selector(
@@ -91,14 +113,28 @@ def _select_date_and_time(page) -> bool:
             timeout=10000,
             state="visible"
         )
+        logger.info("Timeslots loaded.")
     except Exception:
-        logger.warning("Timeslots did not appear after clicking date.")
-        return False
+        reason = f"Timeslots did not appear after clicking {earliest_raw}."
+        logger.warning(reason)
+        logger.warning("Dumping all inputs on page for inspection:")
+        for i, inp in enumerate(page.locator("input").all()):
+            logger.info(
+                f"  [{i}] "
+                f"id={inp.get_attribute('id')!r} "
+                f"name={inp.get_attribute('name')!r} "
+                f"type={inp.get_attribute('type')!r} "
+                f"data-text={inp.get_attribute('data-text')!r}"
+            )
+        _screenshot(page, "available_slots")
+        return False, reason
 
     _screenshot(page, "available_slots")
 
     # --- Collect and filter timeslots ---
-    radio_buttons = page.locator('input[type="radio"][name^="rblResults"]').all()
+    radio_buttons = page.locator(
+        'input[type="radio"][name^="rblResults"]'
+    ).all()
     logger.info(f"Timeslots found     : {len(radio_buttons)}")
 
     valid_slots = []
@@ -111,23 +147,30 @@ def _select_date_and_time(page) -> bool:
                 f"{earliest_raw} {time_text}", "%d/%m/%Y %I:%M %p"
             )
         except ValueError:
+            logger.warning(f"  Could not parse timeslot: {time_text!r}")
             continue
 
         if slot_dt <= cutoff:
+            logger.info(f"  Skip {time_text} — within 1 hour of now.")
             continue
 
+        logger.info(f"  Valid timeslot: {time_text}")
         valid_slots.append((slot_dt, radio, time_text))
 
     if not valid_slots:
-        logger.info(f"No valid timeslots on {earliest_raw} — all are within 1 hour or past.")
-        notify.notify_error(f"No valid timeslots on {earliest_raw}.")
-        return False
+        reason = (
+            f"All timeslots on {earliest_raw} are "
+            f"within 1 hour or in the past."
+        )
+        logger.info(reason)
+        _screenshot(page, "available_slots")
+        return False, reason
 
     valid_slots.sort(key=lambda x: x[0])
     _, earliest_radio, earliest_time = valid_slots[0]
     logger.info(f"Earliest valid slot : {earliest_time}")
 
-    # --- Select timeslot and proceed ---
+    # --- Select timeslot and click Next ---
     earliest_radio.click()
 
     try:
@@ -141,16 +184,17 @@ def _select_date_and_time(page) -> bool:
 
     page.locator("#ContentPlaceHolder1_btnCont").click()
     page.wait_for_load_state("networkidle", timeout=30000)
-    logger.info("Slot selection submitted.")
 
-    return True
+    detail = f"Slot selected: {earliest_raw} at {earliest_time}"
+    logger.info(detail)
+    return True, detail
 
 
-def _confirm_and_save(page) -> bool:
+def _confirm_and_save(page) -> tuple[bool, str]:
     """
-    Read the confirmed date and location from the confirmation page,
+    Read confirmed date and location from the confirmation page,
     click Save changes, and persist the result.
-    Returns True on success, False otherwise.
+    Returns (True, detail) on success, (False, reason) otherwise.
     """
     try:
         page.wait_for_selector(
@@ -159,9 +203,10 @@ def _confirm_and_save(page) -> bool:
             state="visible"
         )
     except Exception:
-        logger.warning("Confirmation box not found — page may have changed.")
-        _screenshot(page, "confirm_missing")
-        return False
+        reason = "Confirmation page not detected — page structure may have changed."
+        logger.warning(reason)
+        _screenshot(page, "error")
+        return False, reason
 
     # --- Read confirmed details ---
     confirmed_date     = "unknown"
@@ -186,40 +231,36 @@ def _confirm_and_save(page) -> bool:
     # --- Click Save changes ---
     save_btn = page.locator('button:has-text("Save changes")')
     if save_btn.count() == 0:
-        logger.warning("Save changes button not found.")
-        notify.notify_error("Save changes button not found on confirmation page.")
-        return False
+        reason = "Save changes button not found on confirmation page."
+        logger.warning(reason)
+        return False, reason
 
     save_btn.click()
     page.wait_for_load_state("networkidle", timeout=30000)
 
     _screenshot(page, "saved")
 
-    # --- Persist and notify ---
+    # --- Persist confirmed appointment ---
     config.save_confirmed_appointment(
         date=confirmed_date,
         time="",
         location=confirmed_location
     )
-    notify.notify_slot_found(
-        location=confirmed_location,
-        date=confirmed_date,
-        time=""
-    )
-    logger.info(f"Appointment updated — {confirmed_date} at {confirmed_location}")
 
-    return True
+    detail = f"Appointment updated — {confirmed_date} at {confirmed_location}"
+    logger.info(detail)
+    return True, detail
 
 
 def check_appointments():
     """
     Full automation flow:
       1. Load search page and submit credentials
-      2. Click Modify on the existing appointment
+      2. Click Modify on existing appointment
       3. Click Next through the location page
-      4. Select the earliest valid date and timeslot
+      4. Select earliest valid date and timeslot
       5. Read and confirm the summary page
-      6. Save changes
+      6. Save changes and notify result
     """
     logger.info(f"Starting check — container: {config.CONTAINER_NAME}")
 
@@ -240,70 +281,114 @@ def check_appointments():
 
         try:
             # -- 1. Search page --
-            page.goto(config.BUPA_URL, wait_until="networkidle", timeout=30000)
-            logger.info("Search page loaded.")
+            logger.info("Step 1: Loading search page...")
+            page.goto(
+                config.BUPA_URL,
+                wait_until="networkidle",
+                timeout=30000
+            )
+            logger.info("Step 1: Search page loaded.")
 
             page.locator("#txtHAPID").fill(config.HAP_ID)
             page.locator("#txtEmail").fill(config.EMAIL)
             page.locator("#txtFirstName").fill(config.GIVEN_NAMES)
             page.locator("#txtSurname").fill(config.FAMILY_NAME)
             page.locator("#txtDOB").fill(config.DOB)
+            logger.info("Step 1: Credentials filled.")
 
             page.locator("#ContentPlaceHolder1_btnSearch").click()
             page.wait_for_load_state("networkidle", timeout=30000)
-            logger.info("Search results loaded.")
+            logger.info("Step 1: Search results loaded.")
 
             # -- 2. Modify existing appointment --
+            logger.info("Step 2: Looking for Modify button...")
             modify_btn = page.locator(
                 "#ContentPlaceHolder1_repAppointments_lnkChangeAppointment_0"
             )
             if modify_btn.count() == 0:
-                logger.warning("Modify button not found — no existing appointment detected.")
-                notify.notify_error("Modify button not found on results page.")
+                reason = "Modify button not found — no existing appointment detected."
+                logger.warning(f"Step 2 FAILED: {reason}")
+                _screenshot(page, "error")
+                notify.notify_error(reason)
                 return
 
             modify_btn.click()
             page.wait_for_load_state("networkidle", timeout=30000)
-            logger.info("Modify page loaded.")
+            logger.info("Step 2: Modify page loaded.")
 
             # -- 3. Location page — click Next without changes --
+            logger.info("Step 3: Looking for Next button on location page...")
             next_btn = page.locator("#ContentPlaceHolder1_btnCont")
             if next_btn.count() == 0:
-                logger.warning("Next button not found on location page.")
-                notify.notify_error("Next button not found on location page.")
+                reason = "Next button not found on location page."
+                logger.warning(f"Step 3 FAILED: {reason}")
+                _screenshot(page, "error")
+                notify.notify_error(reason)
                 return
 
             next_btn.click()
             page.wait_for_load_state("networkidle", timeout=30000)
-            logger.info("Date selection page loaded.")
+            logger.info("Step 3: Date selection page loaded.")
 
             # -- 4. Select earliest valid date and timeslot --
-            if not _select_date_and_time(page):
-                logger.info("No suitable slot this run — will retry on next schedule.")
+            logger.info("Step 4: Selecting date and timeslot...")
+            slot_found, slot_detail = _select_date_and_time(page)
+            logger.info(
+                f"Step 4: slot_found={slot_found} "
+                f"detail={slot_detail!r}"
+            )
+
+            if not slot_found:
+                notify.notify_result(
+                    success=False,
+                    detail=slot_detail,
+                    screenshot="available_slots"
+                )
                 return
 
             # -- 5. Confirmation page --
-            if not _confirm_and_save(page):
-                logger.warning("Confirmation step failed — check screenshots.")
+            logger.info("Step 5: Reading confirmation page...")
+            confirmed, confirm_detail = _confirm_and_save(page)
+            logger.info(
+                f"Step 5: confirmed={confirmed} "
+                f"detail={confirm_detail!r}"
+            )
+
+            if not confirmed:
+                logger.warning(f"Step 5 FAILED: {confirm_detail}")
+                notify.notify_result(
+                    success=False,
+                    detail=confirm_detail,
+                    screenshot="error"
+                )
                 return
 
-            logger.info("Flow complete — appointment successfully updated.")
+            # -- 6. Success --
+            logger.info("Step 6: Full flow complete.")
+            notify.notify_result(
+                success=True,
+                detail=confirm_detail,
+                screenshot="confirmation"
+            )
+            logger.info("Step 6: Appointment successfully updated.")
 
         except PlaywrightTimeout as e:
-            logger.error(f"Page timeout: {e}")
-            try:
-                _screenshot(page, "timeout")
-            except Exception:
-                pass
-            notify.notify_error(f"Timeout: {e}")
-
-        except Exception as e:
-            logger.error(f"Unexpected error ({type(e).__name__}): {e}")
+            reason = f"Page timeout: {e}"
+            logger.error(reason)
             try:
                 _screenshot(page, "error")
             except Exception:
                 pass
-            notify.notify_error(str(e))
+            notify.notify_error(reason)
+
+        except Exception as e:
+            reason = f"Unexpected error ({type(e).__name__}): {e}"
+            logger.error(reason)
+            try:
+                _screenshot(page, "error")
+            except Exception:
+                pass
+            notify.notify_error(reason)
 
         finally:
             browser.close()
