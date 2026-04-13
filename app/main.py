@@ -42,7 +42,7 @@ from app import config, notify
 
 class HealthHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path == '/health':
+        if self.path in ('/', '/health'):
             self.send_response(200)
             self.send_header('Content-type', 'text/plain')
             self.end_headers()
