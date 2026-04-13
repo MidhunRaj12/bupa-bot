@@ -9,8 +9,12 @@ URL = "https://bmvs.onlineappointmentscheduling.net.au/oasis/Search.aspx"
 
 def setup_logger():
     """Configure loguru to write to file + console."""
+    # Create dirs first, before loguru tries to open the file
+    os.makedirs(config.LOG_DIR, exist_ok=True)
     os.makedirs(config.SCREENSHOT_DIR, exist_ok=True)
-    log_path = f"/app/logs/{config.CONTAINER_NAME}.log"
+
+    log_path = os.path.join(config.LOG_DIR, f"{config.CONTAINER_NAME}.log")
+
     logger.add(
         log_path,
         rotation="10 MB",
