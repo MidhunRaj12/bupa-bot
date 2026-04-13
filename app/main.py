@@ -22,6 +22,8 @@ import random
 import traceback
 import signal
 import threading
+import http.server
+import socketserver
 from datetime import datetime
 from loguru import logger
 from apscheduler.schedulers.blocking import BlockingScheduler
@@ -36,6 +38,23 @@ from tenacity import (
 )
 from app.bot import check_appointments, setup_logger
 from app import config, notify
+
+
+class HealthHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        if self.path == '/health':
+            self.send_response(200)
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b'OK')
+        else:
+            self.send_response(404)
+            self.end_headers()
+
+
+def run_health_server():
+    with socketserver.TCPServer(("", 8000), HealthHandler) as httpd:
+        httpd.serve_forever()
 
 
 # ---------------------------------------------------------------------------
@@ -107,6 +126,11 @@ def main():
         raise
 
     notify.notify_startup()
+
+    # Start health check server
+    health_thread = threading.Thread(target=run_health_server, daemon=True)
+    health_thread.start()
+    logger.info("Health check server started on port 8000")
 
     # Run once immediately on startup
     logger.info("Running initial check on startup...")
