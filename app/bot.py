@@ -102,67 +102,65 @@ def _select_date_and_time(page) -> tuple[bool, str]:
         return False, reason
 
     valid_dates.sort(key=lambda x: x[0])
-    earliest_date, earliest_btn, earliest_raw = valid_dates[0]
-    logger.info(f"Earliest valid date : {earliest_raw}")
+    # --- Try each valid date until we find one with timeslots ---
+    for earliest_date, earliest_btn, earliest_raw in valid_dates:
+        logger.info(f"Trying date : {earliest_raw}")
 
-    # --- Click date and wait for timeslots ---
-    earliest_btn.click()
-    try:
-        page.wait_for_selector(
-            'input[type="radio"][name^="rblResults"]',
-            timeout=10000,
-            state="visible"
-        )
-        logger.info("Timeslots loaded.")
-    except Exception:
-        reason = f"Timeslots did not appear after clicking {earliest_raw}."
-        logger.warning(reason)
-        logger.warning("Dumping all inputs on page for inspection:")
-        for i, inp in enumerate(page.locator("input").all()):
-            logger.info(
-                f"  [{i}] "
-                f"id={inp.get_attribute('id')!r} "
-                f"name={inp.get_attribute('name')!r} "
-                f"type={inp.get_attribute('type')!r} "
-                f"data-text={inp.get_attribute('data-text')!r}"
-            )
-        _screenshot(page, "available_slots")
-        return False, reason
-
-    _screenshot(page, "available_slots")
-
-    # --- Collect and filter timeslots ---
-    radio_buttons = page.locator(
-        'input[type="radio"][name^="rblResults"]'
-    ).all()
-    logger.info(f"Timeslots found     : {len(radio_buttons)}")
-
-    valid_slots = []
-    for radio in radio_buttons:
-        time_text = radio.get_attribute("data-text")
-        if not time_text:
-            continue
+        # --- Click date and wait for timeslots ---
+        earliest_btn.click()
         try:
-            slot_dt = datetime.strptime(
-                f"{earliest_raw} {time_text}", "%d/%m/%Y %I:%M %p"
+            page.wait_for_selector(
+                'input[type="radio"][name^="rblResults"]',
+                timeout=10000,
+                state="visible"
             )
-        except ValueError:
-            logger.warning(f"  Could not parse timeslot: {time_text!r}")
-            continue
+            logger.info("Timeslots loaded.")
+        except Exception:
+            logger.warning(f"Timeslots did not appear after clicking {earliest_raw}.")
+            continue  # Try next date
 
-        if slot_dt <= cutoff:
-            logger.info(f"  Skip {time_text} — within 1 hour of now.")
-            continue
+        _screenshot(page, "available_slots")
 
-        logger.info(f"  Valid timeslot: {time_text}")
-        valid_slots.append((slot_dt, radio, time_text))
+        # --- Collect and filter timeslots ---
+        radio_buttons = page.locator(
+            'input[type="radio"][name^="rblResults"]'
+        ).all()
+        logger.info(f"Timeslots found     : {len(radio_buttons)}")
+
+        valid_slots = []
+        for radio in radio_buttons:
+            time_text = radio.get_attribute("data-text")
+            if not time_text:
+                continue
+            try:
+                slot_dt = datetime.strptime(
+                    f"{earliest_raw} {time_text}", "%d/%m/%Y %I:%M %p"
+                )
+            except ValueError:
+                logger.warning(f"  Could not parse timeslot: {time_text!r}")
+                continue
+
+            if slot_dt <= cutoff:
+                logger.info(f"  Skip {time_text} — within 1 hour of now.")
+                continue
+
+            logger.info(f"  Valid timeslot: {time_text}")
+            valid_slots.append((slot_dt, radio, time_text))
+
+        if valid_slots:
+            # Found valid slots on this date
+            break
+        else:
+            logger.warning(f"No valid timeslots on {earliest_raw}.")
+            continue  # Try next date
 
     if not valid_slots:
-        reason = (
-            f"All timeslots on {earliest_raw} are "
-            f"within 1 hour or in the past."
-        )
+        reason = "No valid timeslots found on any earlier date."
         logger.info(reason)
+        logger.info(
+            f"Taking screenshot before returning "
+            f"— SCREENSHOT_DIR: {config.SCREENSHOT_DIR}"
+        )
         _screenshot(page, "available_slots")
         return False, reason
 
