@@ -32,6 +32,7 @@ services:
       # Mounts logs folder to host so you can inspect logs/screenshots
       # from Windows at: \\wsl$\Ubuntu\home\<user>\bupa-bot\logs
       - ./logs:/app/logs
+      - ./envs:/app/envs
     restart: unless-stopped
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]

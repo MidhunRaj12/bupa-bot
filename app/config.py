@@ -128,10 +128,9 @@ def save_confirmed_appointment(date: str, time: str, location: str):
         return
 
     # --- Update CURRENT_APPT_DATE in .env ---
-    # Check both project root and one level up (in case of Docker paths)
-    env_path = Path(".env")
-    if not env_path.exists():
-        env_path = Path("../.env")
+    # Use the mounted envs directory
+    env_file_name = CONTAINER_NAME.replace("bot_", "") + ".env"
+    env_path = Path("/app/envs") / env_file_name
 
     if env_path.exists():
         content = env_path.read_text()
@@ -145,7 +144,7 @@ def save_confirmed_appointment(date: str, time: str, location: str):
         logger.info(f".env updated — CURRENT_APPT_DATE={new_date}")
     else:
         logger.warning(
-            ".env file not found — CURRENT_APPT_DATE not persisted. "
+            f".env file not found at {env_path} — CURRENT_APPT_DATE not persisted. "
             "Update it manually before next run."
         )
 
